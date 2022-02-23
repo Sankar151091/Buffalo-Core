@@ -1,10 +1,15 @@
+using AutoMapper;
+using Buffalo.Contracts;
+using Buffalo.Extension;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
-using Buffalo.Extension;
+using NLog;
+using System.IO;
 
 namespace Buffalo
 {
@@ -13,6 +18,7 @@ namespace Buffalo
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
+            LogManager.LoadConfiguration(string.Concat(Directory.GetCurrentDirectory(), "/nlog.config"));
         }
 
         public IConfiguration Configuration { get; }
@@ -21,6 +27,13 @@ namespace Buffalo
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddJWTTokenServices(Configuration);
+            services.ConfigureCors();
+            services.ConfigureIISIntegration();
+            services.ConfigureLoggerService();
+            services.ConfigureSqlContext(Configuration);
+            services.ConfigureExternalClientContext(Configuration);
+            services.ConfigureRepositoryManager();
+            services.AddAutoMapper(typeof(Startup));
             services.AddControllers();
             services.AddEndpointsApiExplorer();
             services.AddSwaggerGen(c =>
@@ -47,10 +60,11 @@ namespace Buffalo
                 });
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "Buffalo", Version = "v1" });
             });
+            
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILoggerManager logger)
         {
             if (env.IsDevelopment())
             {
@@ -58,10 +72,18 @@ namespace Buffalo
                 app.UseSwagger();
                 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Buffalo v1"));
             }
-
+            app.ConfigureExceptionHandler(logger);
             app.UseHttpsRedirection();
 
+            app.UseStaticFiles();
+
+            app.UseForwardedHeaders(new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.All
+            });
+
             app.UseRouting();
+            app.UseCors("CorsPolicy");
 
             app.UseAuthorization();
 
